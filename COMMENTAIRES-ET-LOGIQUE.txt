@@ -1,0 +1,324 @@
+================================================================================
+ TASKD WEB (Next.js + TypeScript) — PAGES DE CONNEXION ET D'INSCRIPTION
+ Commentaires et logique du code
+================================================================================
+
+Le code source ne contient volontairement aucun commentaire : tout ce qui
+explique le code se trouve dans ce fichier. Convention de la ressource IWEY :
+le code est écrit en anglais, les textes affichés et les explications sont en
+français.
+
+--------------------------------------------------------------------------------
+1. SOURCES UTILISÉES
+--------------------------------------------------------------------------------
+- Ressource IWEY School « Développement frontend avec Next.js » (v1.0) :
+  App Router, composants serveur et client, Server Actions, validation zod,
+  middleware, variables CSS, architecture par couches (ui, components, features,
+  app, lib).
+- Maquette Figma (page « interface », frames de connexion et d'inscription) :
+  mesures, couleurs, polices, textes. Les valeurs relevées sont dans
+  src/app/globals.css (voir la section 7).
+- Les deux illustrations fournies : public/images/.
+
+Limite à connaître : le cahier des charges lui-même n'a pas été fourni, seulement
+la ressource qui le cite. Les points qui en dépendent sont des HYPOTHÈSES,
+listées en section 9. À vérifier avec le cahier des charges.
+
+--------------------------------------------------------------------------------
+2. LANCER LE PROJET
+--------------------------------------------------------------------------------
+  pnpm install                 (ou npm install)
+  copier .env.example en .env.local
+  pnpm dev                     (ou npm run dev)  ->  http://localhost:3000
+
+Variables (.env.example) :
+  API_URL              adresse de la passerelle API. Lue côté serveur seulement
+                       (pas de préfixe NEXT_PUBLIC_, donc jamais dans le navigateur).
+  AUTH_MOCK            "true" : la connexion et l'inscription sont simulées, sans
+                       serveur. À mettre à "false" quand la passerelle est prête.
+  NEXT_PUBLIC_APP_URL  adresse publique du site (non secrète).
+
+Pour tester sans serveur (AUTH_MOCK=true) :
+  - connexion  : n'importe quel identifiant, mot de passe quelconque.
+                 Le mot de passe « mauvais123 » est refusé (« Identifiants incorrects »).
+  - inscription: l'email « deja@taskd.bj » est refusé (« Un compte existe déjà »).
+  - après connexion, la page « Mes offres » propose « Se déconnecter » : il faut
+    se déconnecter pour revoir les pages de connexion (voir section 5).
+
+Autres commandes : typecheck (tsc), lint, build, start.
+
+--------------------------------------------------------------------------------
+3. ARBORESCENCE ET RÔLE DES COUCHES
+--------------------------------------------------------------------------------
+  src/
+    app/            routes : fines, elles assemblent des features
+      (auth)/login, (auth)/register     pages publiques, sans navigation
+      (app)/offers, (app)/profile/complete   pages réservées (provisoires)
+      layout.tsx, globals.css, page.tsx
+    features/auth/  tout le domaine « authentification »
+    components/     composants composés : AuthShell
+    ui/             briques sans logique métier : Button, TextField,
+                    PasswordField, Alert
+    lib/            outils partagés : client API, constantes, redirection sûre
+    middleware.ts   protection des routes
+
+Règles d'import (ressource, section 7.4) : une couche n'importe que celles
+situées en dessous (app -> features -> components -> ui). Une feature expose son
+API publique dans index.ts : les pages importent « @/features/auth », jamais un
+fichier à l'intérieur. ui/ ne contient ni appel d'API ni texte métier.
+
+Groupes de routes : les dossiers (auth) et (app) n'apparaissent pas dans l'URL.
+Ils servent à regrouper les pages : /login et /register vivent dans (auth).
+
+--------------------------------------------------------------------------------
+4. LOGIQUE DU PARCOURS
+--------------------------------------------------------------------------------
+Connexion (/login)
+  1. La page serveur lit le paramètre « next » dans l'URL (page demandée avant
+     d'être renvoyé vers la connexion) et le donne au formulaire.
+  2. Le formulaire (composant client) envoie ses champs à la Server Action
+     loginAction.
+  3. loginAction valide les champs avec zod. Si invalide : elle renvoie les
+     erreurs champ par champ, et l'identifiant saisi pour le réafficher.
+  4. Si valide : elle appelle authenticate() (api.ts). Refus : un message
+     général (« Identifiants incorrects »). Succès : elle reçoit un jeton.
+  5. Elle enregistre le jeton dans un cookie de session, puis redirige vers
+     « next » (s'il est sûr) ou vers /offers.
+
+Inscription (/register)
+  Même principe, avec registerAction : validation des six champs, création du
+  compte, puis cookie de session et redirection vers /profile/complete (étape
+  « Complétez votre profil » de la maquette, à construire).
+
+Protection des pages (middleware.ts)
+  - Sans cookie de session, les pages protégées (/offers, /tasks, /wallet,
+    /profile) renvoient vers /login?next=<page demandée>.
+  - Avec un cookie de session, /login et /register renvoient vers /offers
+    (inutile de se reconnecter).
+  - Le middleware ne vérifie que la PRÉSENCE du cookie. La vraie vérification
+    (jeton valide, rôle) appartient à la passerelle, à chaque appel d'API.
+
+--------------------------------------------------------------------------------
+5. COMMENTAIRES, FICHIER PAR FICHIER
+--------------------------------------------------------------------------------
+
+src/app/layout.tsx
+  Enveloppe de toute l'application. Charge la police Montserrat avec next/font
+  (téléchargée au build, servie par le site : pas d'appel à Google chez le
+  visiteur) et la rend disponible via la variable CSS --font-montserrat. Définit
+  le titre « TaskD » et le modèle « %s · TaskD » pour les autres pages.
+
+src/app/globals.css
+  Les « design tokens » : couleurs, tailles de texte, rayons, espacements relevés
+  dans la maquette. Tous les composants utilisent ces variables ; changer la
+  charte = modifier ce seul fichier. La couleur d'erreur n'existe pas dans la
+  maquette : elle a été ajoutée.
+
+src/app/page.tsx
+  La racine « / » redirige vers /login (il n'y a pas encore de page d'accueil).
+
+src/app/(auth)/login/page.tsx et register/page.tsx
+  Composants SERVEUR. Ils ne font qu'assembler : la coquille AuthShell (titre,
+  sous-titre, illustration) et le formulaire de la feature. Seuls les formulaires
+  sont envoyés au navigateur. Sur la connexion, searchParams est une promesse
+  qu'il faut attendre (Next.js 15).
+
+src/app/(app)/offers/page.tsx et profile/complete/page.tsx
+  Pages provisoires, juste là pour que la redirection après connexion ait une
+  destination et pour offrir le bouton « Se déconnecter » pendant les tests.
+  À remplacer par les vraies pages.
+
+src/middleware.ts
+  Voir section 4. Le « matcher » limite son exécution aux routes concernées.
+  Il importe le nom du cookie depuis lib/constants.ts (un fichier sans
+  « server-only », car le middleware ne tourne pas dans l'environnement serveur
+  habituel de Next.js).
+
+src/lib/constants.ts
+  Nom du cookie (taskd_session), durée de session (7 jours) et destinations par
+  défaut après connexion et inscription. Un seul endroit à modifier.
+
+src/lib/safe-redirect.ts
+  toSafePath() n'accepte comme destination de redirection qu'un chemin interne
+  commençant par « / ». Elle refuse « //site.com » et les adresses complètes :
+  sans cela, un lien piégé /login?next=//site-pirate.com enverrait l'utilisateur
+  vers un site malveillant juste après sa connexion (faille « open redirect »).
+
+src/lib/api-client.ts
+  apiPost() : envoie une requête POST JSON à la passerelle. « server-only » fait
+  échouer le build si ce fichier est importé dans un composant client. Le cache
+  est désactivé (no-store) : ces appels ne doivent jamais être mémorisés.
+  Il ne parle qu'à la passerelle, jamais directement à un microservice.
+
+src/features/auth/schemas.ts
+  Règles de validation zod, messages en français. Une seule source de vérité :
+  les types TypeScript (LoginInput, RegisterInput) en sont déduits.
+    - connexion : identifiant et mot de passe obligatoires ;
+    - inscription : nom, prénoms, profession obligatoires ; téléphone de 8 à 15
+      chiffres (indicatif +229 toléré) ; email de forme valide ; mot de passe
+      d'au moins 8 caractères avec une lettre et un chiffre.
+  sessionResponseSchema : forme attendue de la réponse de la passerelle ({ token }).
+
+src/features/auth/types.ts
+  AuthActionState : ce que renvoie une action au formulaire (erreurs par champ,
+  message général, valeurs à réafficher). AuthResult : résultat d'un appel à la
+  passerelle (succès avec jeton, ou échec avec message).
+
+src/features/auth/session.ts
+  Écrit et supprime le cookie de session. Il est httpOnly (illisible par le
+  JavaScript de la page, ce qui limite les dégâts d'une faille XSS), sameSite
+  « lax » (limite les envois depuis un autre site), « secure » en production
+  (HTTPS uniquement).
+
+src/features/auth/api.ts
+  Appelle la passerelle (ou la simule si AUTH_MOCK=true). Traduit les réponses
+  HTTP en messages pour l'utilisateur : 401 = identifiants incorrects, 409 =
+  email déjà utilisé, autre erreur = message générique, serveur injoignable =
+  message dédié. Le mode simulé permet de travailler sans passerelle.
+
+src/features/auth/actions.ts
+  Les Server Actions : loginAction, registerAction, logoutAction.
+    - Une Server Action est un point d'entrée PUBLIC : n'importe qui peut
+      l'appeler avec n'importe quelles données. La validation zod est donc
+      refaite ici, même si le navigateur a déjà contrôlé.
+    - Le mot de passe n'est jamais renvoyé au formulaire en cas d'erreur.
+    - redirect() fonctionne en interrompant l'exécution : il est appelé en
+      dernier, hors de tout try/catch.
+    - readText() convertit une valeur de formulaire en texte (un champ peut aussi
+      contenir un fichier).
+
+src/features/auth/components/LoginForm.tsx et RegisterForm.tsx
+  Composants CLIENT (« use client ») car ils utilisent useActionState. Ce hook
+  renvoie l'état de la dernière action, la fonction à brancher sur le formulaire
+  et un indicateur « envoi en cours » qui bloque le bouton (évite le double
+  envoi). Les champs sont « non contrôlés » : defaultValue réaffiche ce que
+  l'utilisateur avait saisi après une erreur. noValidate désactive les bulles du
+  navigateur au profit de nos messages. Le champ caché « next » transporte la
+  page de destination.
+
+src/features/auth/components/AuthForm.module.css
+  Mise en page commune des deux formulaires (colonne, écart de 36 px entre
+  champs, ligne Nom/Prénoms sur deux colonnes, lien secondaire). Les CSS Modules
+  limitent chaque classe au composant qui l'importe.
+
+src/features/auth/index.ts
+  API publique de la feature : LoginForm, RegisterForm, logoutAction.
+
+src/components/AuthShell/AuthShell.tsx (+ BackLink.tsx, AuthShell.module.css)
+  Mise en page commune aux deux pages : à gauche « Retour », titre, sous-titre,
+  illustration ; à droite la carte blanche. BackLink est un petit composant
+  client à part (il utilise le routeur pour revenir en arrière), de sorte que le
+  reste de la coquille reste côté serveur. Sous 1000 px : une colonne,
+  illustration masquée. L'image passe par next/image (redimensionnement,
+  chargement prioritaire) ; son alt est vide car elle est décorative.
+
+src/ui/Button
+  Bouton principal (fond bleu) et variante « secondary » (contour). Gère l'état
+  de chargement (texte remplacé, bouton bloqué, aria-busy). Le type par défaut
+  est « button » : un bouton de formulaire doit déclarer type="submit".
+  Accepte toutes les props natives d'un bouton (...rest).
+
+src/ui/TextField
+  Libellé + champ + message d'erreur. Le libellé est relié au champ par un
+  identifiant généré (useId) : cliquer sur le libellé active le champ, et les
+  lecteurs d'écran annoncent le bon nom. En cas d'erreur : bordure rouge,
+  aria-invalid et aria-describedby vers le message (rôle « alert »).
+  « endAdornment » permet d'ajouter un élément à droite du champ.
+
+src/ui/PasswordField
+  TextField + bouton « Afficher / Masquer ». Seul composant à garder un état
+  (visible ou non), donc client ; la frontière « use client » reste ainsi au plus
+  bas de l'arbre, comme le recommande la ressource.
+
+src/ui/Alert
+  Message encadré (erreur ou succès) pour les erreurs générales de formulaire.
+
+--------------------------------------------------------------------------------
+6. COMPORTEMENTS À CONNAÎTRE
+--------------------------------------------------------------------------------
+- Après une erreur, React 19 vide les champs non contrôlés : c'est pourquoi les
+  valeurs saisies sont renvoyées par l'action puis réinjectées avec defaultValue.
+- Sans JavaScript, les formulaires fonctionnent quand même (amélioration
+  progressive) : c'est l'avantage des Server Actions.
+- La déconnexion supprime le cookie puis renvoie vers /login.
+
+--------------------------------------------------------------------------------
+7. CORRESPONDANCE MAQUETTE -> CODE
+--------------------------------------------------------------------------------
+  Élément                    Maquette Figma                   Variable / fichier
+  -------------------------  -------------------------------  --------------------
+  Fond de page               #fafafa                          --color-bg
+  Carte                      blanche, rayon 26, large 634     --radius-card, AuthShell
+  Marge interne de la carte  56 px                            --card-padding
+  Bleu principal             #008fe3                          --color-primary
+  Libellés                   Montserrat Bold 17, #001029      --fs-label, --color-navy
+  Champs                     522 x 55, fond #f2f2f2, bordure  --field-height,
+                             2 px #dfdfdf, rayon 8            --color-input-*
+  Champ actif                bordure #008fe3                  .input:focus
+  Bouton                     243 x 50, rayon 8, texte 18      Button.module.css
+  Titre                      Montserrat ExtraBold 35          --fs-title
+  Sous-titre                 Montserrat Regular 20, #727272   --fs-subtitle
+  Écart entre champs         127 px de libellé à libellé      --field-gap (36 px)
+
+Illustrations : login-illustration.png (590 x 598) pour la connexion et
+register-illustration.png (590 x 727) pour l'inscription. Attribution supposée à
+partir des images reçues : à échanger dans les deux pages si besoin.
+
+--------------------------------------------------------------------------------
+8. SÉCURITÉ : CE QUI EST FAIT
+--------------------------------------------------------------------------------
+- Validation côté serveur dans chaque action (le navigateur peut être contourné).
+- Cookie de session httpOnly, sameSite, secure en production.
+- Aucune variable secrète avec le préfixe NEXT_PUBLIC_ ; API_URL reste côté
+  serveur grâce à « server-only ».
+- Redirection après connexion limitée aux chemins internes.
+- Mot de passe jamais renvoyé au navigateur.
+- Message volontairement général pour un échec de connexion (« Identifiants
+  incorrects »), qui ne révèle pas si l'identifiant existe.
+
+Pas encore fait : limitation du nombre d'essais (à confier à la passerelle),
+protection supplémentaire contre les attaques automatisées, « mot de passe
+oublié ».
+
+--------------------------------------------------------------------------------
+9. HYPOTHÈSES À VÉRIFIER AVEC LE CAHIER DES CHARGES
+--------------------------------------------------------------------------------
+1. Routes de la passerelle : POST /api/v1/auth/login et POST /api/v1/auth/register.
+2. Réponse en cas de succès : { "token": "..." }. Si la passerelle pose elle-même
+   un cookie (en-tête Set-Cookie), il faudra le transmettre depuis la Server
+   Action au lieu de créer le cookie dans session.ts.
+3. Codes d'erreur : 401 pour une connexion refusée, 409 pour un email déjà pris.
+4. Nom du cookie de session : taskd_session (repris de la ressource IWEY).
+5. Champs de l'inscription : nom, prénoms, téléphone, email, profession, mot de
+   passe (relevés sur la maquette). Aucune confirmation du mot de passe.
+6. Règle du mot de passe (8 caractères, lettre et chiffre) : choix personnel,
+   absent de la maquette.
+7. Destination après connexion (/offers) et après inscription
+   (/profile/complete) : provisoires.
+8. Rôles (délégueur, collaborateur) : non gérés ; la maquette de connexion n'en
+   propose pas.
+
+--------------------------------------------------------------------------------
+10. VÉRIFICATIONS EFFECTUÉES
+--------------------------------------------------------------------------------
+Typage TypeScript, lint et build de production sans erreur. Test sur un serveur
+local (mode simulé) :
+  - /login et /register s'affichent avec les bons titres ;
+  - /offers sans session renvoie vers /login?next=%2Foffers ;
+  - /login avec session renvoie vers /offers ;
+  - connexion : champs vides (2 messages), mauvais mot de passe, succès (cookie
+    posé et redirection), « next » malveillant (//site) ramené à /offers ;
+  - inscription : champs invalides (nom, téléphone, email, profession, mot de
+    passe), email déjà utilisé, succès (cookie posé, redirection).
+Non testé : l'affichage dans un navigateur (couleurs, mesures face à la maquette),
+la connexion à la vraie passerelle, et le téléchargement de la police Montserrat
+(il nécessite un accès à Internet au moment du build).
+
+--------------------------------------------------------------------------------
+11. POUR AJOUTER LA SUITE
+--------------------------------------------------------------------------------
+- « Complétez votre profil » : créer features/profile et remplacer la page
+  (app)/profile/complete.
+- « Mot de passe oublié » : ajouter une action et un schéma dans features/auth,
+  puis une page (auth)/forgot-password.
+- Tests : ajouter Vitest et Testing Library pour les schémas zod et les briques ui.
